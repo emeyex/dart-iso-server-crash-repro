@@ -51,3 +51,5 @@ Abort trap: 6
 I've tried to keep this repro case as simple as possible, see `options.dart` to play with the settings.
 For example, it's pretty easy to show that by getting rid of the HttpServer or by using unique ports
 and `shared: false`, both the assert and crash behaviors go away.
+
+Added an issue here: https://github.com/dart-lang/sdk/issues/36106
