@@ -2,20 +2,12 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
-enum WorkerDeath {
-  deathByMurder,
-  deathBySuicide,
-}
-
-final int workerDeathId = 0;
-final WorkerDeath deathStyle = WorkerDeath.deathByMurder;
+import 'options.dart';
 
 void main() async {
   print('main starting');
-  for (int i = 0; i < 4; ++i) {
-    final w = Worker(i);
-    w.start();
-  }
+  final workers = List<Worker>.generate(workerCount, (i) => Worker(i));
+  workers.forEach((w) => w.start());
   await Future.delayed(Duration(days: 365));
 }
 
@@ -29,13 +21,15 @@ class Worker {
     final onExit = ReceivePort();
     final onError = ReceivePort();
     onExit.listen((_) {
-      print('Worker $workerid exited, restarting...');
       onExit.close();
+      onError.close();
+      print('Worker $workerid exited, restarting...');
       start();
     });
     onError.listen((err) {
       print('Worker $workerid threw an error: $err');
     });
+
     _isolate = await Isolate.spawn(
       _main, 
       workerid,
@@ -43,11 +37,12 @@ class Worker {
       onExit: onExit.sendPort,
       onError: onError.sendPort,
     );
+
     _queueError();
   }
 
   void _queueError() {
-    if (deathStyle ==WorkerDeath.deathByMurder && workerid == workerDeathId) {
+    if (deathStyle == WorkerDeath.murder && workerid == workerDeathId) {
       Future.delayed(Duration(seconds: 10), () {
         if (_isolate != null) {
           print('Manually killing worker $workerid');
@@ -59,25 +54,36 @@ class Worker {
   }
 
   static _main(int workerid) async {
-    final reply = 'Hello from worker: $workerid';
     print('Worker._main starting with workerid=$workerid');
-    final server = await HttpServer.bind('0.0.0.0', 1234, shared: true);
-    server.listen((HttpRequest request) {
-      print('${request.method} ${request.uri} ${request.connectionInfo.remoteAddress.host} -> $reply');
-      final response = request.response;
-      response.statusCode = HttpStatus.ok;
-      response.write(reply);
-      response.close();
-    }, onError: (err, stack) {
-      print('onError: workerid=$workerid: $err');
-      print('    stack=$stack');
-    }, onDone: () {
-      print('onDone: workerid=$workerid'); 
-    });
-    if (deathStyle == WorkerDeath.deathBySuicide && workerid == workerDeathId) {
+
+    if (deathStyle == WorkerDeath.suicide && workerid == workerDeathId) {
       Future.delayed(Duration(seconds: 10), () {
         print('Killing worker: $workerid');
-        throw 'SUICIDE';
+        throw Exception('SUICIDE');
+      });
+    }
+
+    if (serverType == ServerType.none) {
+      await Future.delayed(Duration(days: 365));
+    } else {
+      int port = basePort;
+      bool shared = true;
+      if (serverType == ServerType.unique) {
+        port += workerid;
+        shared = false;
+      }
+      final server = await HttpServer.bind('0.0.0.0', port, shared: shared);
+      server.listen((HttpRequest request) {
+        final reply = 'Hello from worker: $workerid';
+        print('${request.method} ${request.uri} ${request.connectionInfo.remoteAddress.host} -> $reply');
+        final response = request.response;
+        response.statusCode = HttpStatus.ok;
+        response.write(reply);
+        response.close();
+      }, onError: (err, stack) {
+        print('HttpServer onError: workerid=$workerid: $err\nstack=$stack');
+      }, onDone: () {
+        print('HttpServer onDone: workerid=$workerid'); 
       });
     }
   }
